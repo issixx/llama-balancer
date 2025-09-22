@@ -1104,6 +1104,11 @@ exit /b 0
 			echo failed to checkout "%LLAMA_BALANCER_NAME%"
 			exit /b 1
 		)
+	    if exist "%CUR_DIR%requirements.txt" (
+	    	echo # installing required modules...
+	        python -m pip install -r requirements.txt
+	        if ERRORLEVEL 1 exit /b 1
+	    )
 	)
     
 	if exist "%LLAMA_BALANCER_CHECK_FILE%" (
