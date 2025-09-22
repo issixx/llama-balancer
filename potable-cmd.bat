@@ -1109,9 +1109,9 @@ exit /b 0
 	        python -m pip install -r requirements.txt
 	        if ERRORLEVEL 1 exit /b 1
 	    )
-	)
     
-	if exist "%LLAMA_BALANCER_CHECK_FILE%" (
-	    echo # checkout successfully %LLAMA_BALANCER_NAME%...
-    )
+        if exist "%LLAMA_BALANCER_CHECK_FILE%" (
+            echo # checkout successfully %LLAMA_BALANCER_NAME%...
+        )
+	)
 exit /b 0
