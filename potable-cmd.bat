@@ -1099,7 +1099,7 @@ exit /b 0
 			echo failed to fetch "%LLAMA_BALANCER_NAME%"
 			exit /b 1
 		)
-        git -C "%LLAMA_BALANCER_REPO%" checkout -t origin/main
+        git -C "%LLAMA_BALANCER_REPO%" checkout -f -t origin/main
 		if ERRORLEVEL 1 (
 			echo failed to checkout "%LLAMA_BALANCER_NAME%"
 			exit /b 1
