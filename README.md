@@ -16,9 +16,22 @@ A lightweight load balancer and reverse proxy for OpenAI-compatible API servers,
 - Not tested on Linux (GPU metrics collection may not work).
 - Implemented with Flask; not intended for high-volume production traffic.
 
-## How to run
+## How to Run
+
+### Quick Start (Windows)
+
+Run this single command to automatically download and execute the setup script.
+Nothing is required including Git or Python - all portable versions are automatically downloaded and set up in ./workspace:
 
 ```bash
+curl -L -o "run-llama-balancer.bat" "https://raw.githubusercontent.com/issixx/llama-balancer/main/run-llama-balancer.bat" && call run-llama-balancer.bat
+```
+
+### Manual Setup
+
+```bash
+git clone https://github.com/issixx/llama-balancer.git
+cd llama-balancer
 pip install -r requirements.txt
 python llama-balancer-server.py
 ```
@@ -26,7 +39,7 @@ python llama-balancer-server.py
 - The default port is `18000`.
 - Please create a server-list.json in this directory, using the example below as a reference.
 
-### create a server-list.json
+### Create a server-list.json
 
 Define backend servers and model routing rules in `server-list.json`.
 
