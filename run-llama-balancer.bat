@@ -1,6 +1,11 @@
 
 @echo off
 
+if not exist "%~dp0potable-cmd.bat" (
+    echo potable-cmd.bat not found. Downloading...
+    curl -L -o "%~dp0potable-cmd.bat" "https://raw.githubusercontent.com/issixx/llama-balancer/main/potable-cmd.bat"
+    if ERRORLEVEL 1 goto :ERROR
+)
 call "%~dp0potable-cmd.bat"
 if ERRORLEVEL 1 goto :ERROR
 
