@@ -1,0 +1,4 @@
+Flask==3.0.3
+requests==2.32.3
+pynvml==11.5.0
+pywin32==306
