@@ -1,4 +1,6 @@
 :: Copyright 2025 issixx. All Rights Reserved.
+:: Licensed under the MIT License.
+:: Repository: https://github.com/issixx/potable-cmd
 
 @echo off
 
