@@ -20,7 +20,7 @@ from flask import Flask, Response, jsonify, request, stream_with_context
 
 # Servers configuration loaded from server-list.json only (no env overrides)
 # Health check base URLs (addr:health-port) are generated dynamically.
-# The actual proxy uses model ports (addr:model-port).
+# Actual proxying uses model ports (addr:model-port).
 
 # Server definitions
 SERVER_CONFIGS: Dict[str, Dict[str, Any]] = {}
@@ -28,7 +28,7 @@ SERVER_CONFIGS: Dict[str, Dict[str, Any]] = {}
 # Regex patterns (maintaining definition order): (compiled_pattern, server_names, pattern_string)
 MODEL_PATTERN_LIST: List[Tuple[Pattern[str], List[str], str]] = []
 
-# Fallback sets the model-side base URL (addr:model-port)
+# Fallback is set to model-side base URL (addr:model-port)
 FALLBACK_BACKEND: Optional[str] = None
 
 # Optional JSON config file path
@@ -65,7 +65,7 @@ def _apply_model_server_list(models: Dict[str, List[str]], fallback_server_name:
     for pattern_str, server_names in (models or {}).items():
         if not isinstance(pattern_str, str) or not isinstance(server_names, list):
             continue
-        # Only enable server names
+        # Only validate server names
         valid_names: List[str] = []
         for n in server_names:
             if isinstance(n, str) and n in SERVER_CONFIGS:
@@ -79,7 +79,7 @@ def _apply_model_server_list(models: Dict[str, List[str]], fallback_server_name:
             # Skip invalid regex patterns
             pass
     MODEL_PATTERN_LIST = pattern_list
-    # Fallback resolves server name to model base URL
+    # Resolve fallback from server name to model base URL
     if isinstance(fallback_server_name, str) and fallback_server_name in SERVER_CONFIGS:
         FALLBACK_BACKEND = _get_model_base_url(fallback_server_name)
     else:
@@ -322,7 +322,7 @@ class LocalGpuMonitor:
             self._window.append(value)
 
     def _sample_loop(self) -> None:
-        """Class method implementation of the original _sample_local_gpu_loop"""
+        """Class method implementation of traditional _sample_local_gpu_loop"""
         while True:
             # 1) PDH
             pdh_map = self._query_gpu_engine_utilization()
@@ -417,7 +417,7 @@ class BackendHealthMonitor:
     """Periodically poll /llmhealth of each backend and maintain state"""
 
     def __init__(self) -> None:
-        # Has independent internal state
+        # Maintain independent internal state
         self._windows: Dict[str, Deque[int]] = defaultdict(lambda: deque(maxlen=WINDOW_SECONDS))
         self._lock = threading.Lock()
         self._last_metrics: Dict[str, Dict[str, Any]] = {}
@@ -431,7 +431,7 @@ class BackendHealthMonitor:
         self._thread.start()
 
     def get_conservative_status(self, base: str) -> str:
-        """Return idle/busy/invalid on the safe side based on recent WINDOW_SECONDS observations"""
+        """Return idle/busy/invalid on the safe side based on observations from recent WINDOW_SECONDS"""
         with self._lock:
             window = self._windows.get(base)
             if not window or len(window) == 0:
@@ -500,7 +500,7 @@ BACKEND_MONITOR = BackendHealthMonitor()
 
 
 class StickySessionManager:
-    """Maintain IP(+model) to backend binding for a certain period"""
+    """Maintain binding between IP(+model) and backend for a certain period"""
 
     def __init__(self, ttl_seconds: int = STICKY_TTL_SECONDS) -> None:
         self._ttl = ttl_seconds
@@ -524,7 +524,7 @@ class StickySessionManager:
     def update_backend(self, ip: str, backend: str, model: Optional[str] = None) -> None:
         key = f"{ip}|{model}" if model else ip
         with self._lock:
-            # Remove if same model has same backend
+            # Remove if same backend exists for same model
             keys_to_delete = [k for k, v in self._map.items() if k.split("|", 1)[1] == model and v[0] == backend]
             for k in keys_to_delete:
                 self._map.pop(k, None)
@@ -548,7 +548,7 @@ STICKY_MANAGER = StickySessionManager()
 
 
 class InFlightTracker:
-    """Manage concurrent request count per backend×model unit"""
+    """Manage concurrent request count per backend×model"""
 
     def __init__(self) -> None:
         # Generate independent lock and counter dictionary
@@ -608,7 +608,7 @@ MODELS_CACHE_TTL = 10
 
 
 class ModelManager:
-    """Handles model list cache retrieval and instance count calculation"""
+    """Handle model list cache retrieval and instance count calculation"""
 
     def __init__(self, ttl_seconds: int = MODELS_CACHE_TTL) -> None:
         self._ttl = ttl_seconds
@@ -729,10 +729,16 @@ class BackendSelector:
                 if sticky_server_name:
                     sticky_cfg = SERVER_REGISTRY.get_server(sticky_server_name)
                     if sticky_cfg and INFLIGHT_TRACKER.can_accept_request(sticky, model, sticky_cfg.request_max):
-                        return sticky, model  # Adopt because sticky backend is valid
+                        return sticky, model  # Adopt sticky backend as it is valid
 
         # Iterate servers in configured order and return at first match (original behavior)
         for name in backends_for_model:
+            # Remove "-low", "-middle", "-high" from end of model name
+            modelWithoutSuffix = model
+            for suffix in ["-low", "-middle", "-high"]:
+                if modelWithoutSuffix.endswith(suffix):
+                    modelWithoutSuffix = modelWithoutSuffix[: -len(suffix)]
+                    break
             cfg = SERVER_REGISTRY.get_server(name)
             if not cfg:
                 continue
@@ -744,20 +750,20 @@ class BackendSelector:
                 continue
 
             # Check request-max limit
-            if not INFLIGHT_TRACKER.can_accept_request(mbase, model, cfg.request_max):
+            if not INFLIGHT_TRACKER.can_accept_request(mbase, modelWithoutSuffix, cfg.request_max):
                 continue
 
-            # Number of model instances
-            if MODEL_MANAGER.count_instances(mbase, model) == 0:
+            # Model instance count
+            if MODEL_MANAGER.count_instances(mbase, modelWithoutSuffix) == 0:
                 continue
 
-            total_inflight, idle_instances = MODEL_MANAGER.instances_inflight_status(mbase, model)
+            total_inflight, idle_instances = MODEL_MANAGER.instances_inflight_status(mbase, modelWithoutSuffix)
 
             # 1) backend idle & all instances inflight 0
             if total_inflight == 0 and status == "idle":
                 return mbase, model
 
-            # 2) If idle instance exists, adopt the first idle instance
+            # 2) If idle instance exists, adopt first idle instance
             if idle_instances:
                 return mbase, idle_instances[0]
 
@@ -853,13 +859,13 @@ def _get_available_models_set(backend: Optional[str] = None) -> set:
 
 def _extract_username_from_system_messages(messages: Any) -> Optional[str]:
     """Scan system role content from messages,
-    extract xxx from "user name is 'xxx'" format (supports various quotes) and return.
+    extract xxx from format "User's name is 「xxx」" (supports various quote types) and return.
     Returns None if not found.
     """
     try:
         if not isinstance(messages, list):
             return None
-        # Support opening/closing quote variations
+        # Support various opening/closing quote variations
         # Examples: 「」, 『』, " ", " " , ' '
         pattern = re.compile(r"ユーザーの名前は[「『“\"']([^」』”\"']+)[」』”\"']")
         for msg in messages:
@@ -873,7 +879,7 @@ def _extract_username_from_system_messages(messages: Any) -> Optional[str]:
             if isinstance(content, str):
                 text = content
             elif isinstance(content, list):
-                # Support OpenAI content array format possibility (concatenate text)
+                # Support OpenAI content array format (concatenate text)
                 parts: List[str] = []
                 for item in content:
                     if isinstance(item, dict):
@@ -903,7 +909,7 @@ def select_backend_for_request(ip: str) -> Optional[str]:
 
 
 def _count_model_instances(backend: str, model: str) -> int:
-    """Count instances of model name, model name-2, model name-3... in specified backend"""
+    """Count instances of model name, model name-2, model name-3... on specified backend"""
     models_set = _get_available_models_set(backend)
     count = 0
     # The model name itself
@@ -922,10 +928,10 @@ def _count_model_instances(backend: str, model: str) -> int:
 
 
 def _get_model_instances_inflight_status(backend: str, model: str) -> Tuple[int, List[str]]:
-    """Get inflight status of all model instances in specified backend
+    """Get inflight status of all model instances on specified backend
     
     Returns:
-        (total_inflight, idle_instances): Total inflight count and list of instances with inflight count 0
+        (total_inflight, idle_instances): Total inflight count and list of instances with 0 inflight
     """
     models_set = _get_available_models_set(backend)
     total_inflight = 0
@@ -1018,7 +1024,7 @@ def _stream_upstream_response(resp: requests.Response, on_complete) -> Iterable[
 
 @app.route("/favicon.ico")
 def favicon():
-    # Exclude from proxy and return empty response (204 No Content)
+    # Not proxied, return empty response (204 No Content)
     return Response(status=204)
 
 @app.route("/llmhealth", methods=["GET"])  # Not proxied
@@ -1035,7 +1041,7 @@ def llmhealth() -> Response:
 
 @app.route("/llmhealth-snapshot", methods=["GET"])  # JSON for monitor
 def llmhealth_snapshot() -> Response:
-    # build local summary
+    # Build local summary
     local_max = LOCAL_GPU_MONITOR.get_max()
     local_status = "busy" if local_max >= 50.0 else "idle"
 
@@ -1116,7 +1122,7 @@ def llmhealth_snapshot() -> Response:
 
 @app.route("/v1/models", methods=["GET"])
 def models() -> Response:
-    """Aggregate models from all backends and return filtered models with hyphen numbers"""
+    """Aggregate models from all backends and return filtered models excluding those with hyphen numbers"""
     all_models = set()
     
     # Get model list from all backends
@@ -1148,13 +1154,13 @@ def models() -> Response:
 def llmhealth_monitor() -> Response:
     html = """
 <!doctype html>
-<html lang=\"ja\">
+<html lang=\"en\">
   <head>
     <meta charset=\"utf-8\" />
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
     <title>LLM Health Monitor</title>
     <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans JP', 'Meiryo', sans-serif; margin: 20px; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; margin: 20px; }
       .status { display: inline-block; padding: 2px 8px; border-radius: 12px; color: #fff; font-weight: 600; }
       .idle { background: #16a34a; }
       .busy { background: #dc2626; }
@@ -1175,7 +1181,7 @@ def llmhealth_monitor() -> Response:
     </div>
     <div>
       <h3>Local GPU</h3>
-      <div>Status: <span id=\"local-status\" class=\"status\"></span> | Max GPU in last 5s: <b id=\"local-util\"></b>%</div>
+      <div>Status: <span id=\"local-status\" class=\"status\"></span> | Max GPU (5s): <b id=\"local-util\"></b>%</div>
     </div>
       <div>
         <h3>Backends</h3>
@@ -1217,7 +1223,7 @@ def llmhealth_monitor() -> Response:
             const modelInflight = b.model_inflight || {};
             const requestMax = b.request_max || '-';
             
-            // Format request count by model
+            // Format model-specific request counts
             const modelRequests = Object.entries(modelInflight)
               .filter(([model, count]) => count > 0)
               .map(([model, count]) => `${model}: ${count}`)
@@ -1254,19 +1260,42 @@ def llmhealth_monitor() -> Response:
     return Response(html, mimetype="text/html; charset=utf-8")
 
 
-@app.route("/", defaults={"path": ""}, methods=[
-    "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"
-])
-@app.route("/<path:path>", methods=[
-    "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"
-])
+def ApplyCustomClineGBNF(body: Dict[str, Any]):
+    CLINE_GBNF: str = '''root ::= analysis? start final .+
+analysis ::= "<|channel|>analysis<|message|>" ( [^<] | "<" [^|] | "<|" [^e] )* "<|end|>"
+start ::= "<|start|>assistant"
+final ::= "<|channel|>final<|message|>"'''
+    body["reasoning_format"] = "auto"
+    body["grammar"] = CLINE_GBNF
+
+def ApplyCustomCompletions(body: Dict[str, Any]) -> bool:
+    modified: bool = False
+    if isinstance(body, dict) and body.get("messages"):
+        for message in body.get("messages"):
+            if isinstance(message, dict) and message.get("role") == "system":
+                contents = message.get("content", [])
+                text = ""
+                if isinstance(contents, str):
+                    text = contents
+                elif isinstance(contents, list) and 0 < len(contents):
+                    first = contents[0]
+                    if isinstance(first, dict):
+                        text = first.get("text", "")
+                if text.startswith("You are Cline") or text.startswith("You are Roo"):
+                    ApplyCustomClineGBNF(body)
+                    modified = True
+                    break
+    return modified
+
+@app.route("/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+@app.route("/<path:path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
 def proxy(path: str) -> Response:
     client_ip = _get_client_ip()
-    client_ident = client_ip  # Default is IP. Replace if username can be extracted from system prompt
+    client_ident = client_ip  # Default is IP. Replace with username from system prompt if available
     backend: Optional[str] = None
     selected_model: Optional[str] = None
 
-    # Only POST to /v1/chat/completions uses model-specific routing
+    # Model-specific routing only for POST /v1/chat/completions
     is_modified_body = False
     is_completions = request.method == "POST" and request.path.rstrip("/") == "/v1/chat/completions"
     if is_completions:
@@ -1286,10 +1315,13 @@ def proxy(path: str) -> Response:
                     body["model"] = selected_model
                     is_modified_body = True
                     print(f"[INFO] selected backend and model: {backend} | {selected_model}")
+
+            if ApplyCustomCompletions(body):
+                is_modified_body = True
         except Exception:
             backend = backend
 
-    # Fallback for others
+    # Fallback for everything else
     if not backend:
         backend = FALLBACK_BACKEND
     if not backend:
@@ -1307,7 +1339,7 @@ def proxy(path: str) -> Response:
         data = request.get_data() if request.method in {"POST", "PUT", "PATCH"} else None
 
     # Proxy request to the selected backend with streaming
-    # Increment active count just before sending (by backend)
+    # Increment active count just before sending (per backend)
     if selected_model and backend:
         INFLIGHT_TRACKER.inc(backend, selected_model)
     try:

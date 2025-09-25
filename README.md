@@ -100,6 +100,8 @@ You can override the config file path via the `SERVER_LIST_JSON` environment var
 
 - Monitor request status at `/llmhealth-monitor` (auto-refresh every 5 seconds).
 
+![Monitoring Dashboard](pic-monitor.png)
+
 ## Security notes
 
 - This project is intended for evaluation within a private network.
