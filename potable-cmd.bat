@@ -53,7 +53,7 @@ if "%POTABLE_CMAKE_URL%"      equ "" set POTABLE_CMAKE_URL=https://github.com/Ki
 ::if "%POTABLE_PYTHON_URL%"   equ "" set POTABLE_PYTHON_URL=https://www.python.org/ftp/python/3.13.0/python-3.13.0-embed-amd64.zip
 if "%POTABLE_PYTHON_URL%"     equ "" set POTABLE_PYTHON_URL=https://www.python.org/ftp/python/3.12.9/python-3.12.9-embed-amd64.zip
 if "%POTABLE_PYTHON_PIP_URL%" equ "" set POTABLE_PYTHON_PIP_URL=https://bootstrap.pypa.io/get-pip.py
-::if "%POTABLE_PYTHON_REQUIREMENT_MODULES%" equ "" set POTABLE_PYTHON_REQUIREMENT_MODULES=blinker==1.7.0 selenium-wire==5.1.0 selenium==4.23.1 requests setuptools packaging
+::if "%POTABLE_PYTHON_REQUIREMENT_MODULES%" equ "" set POTABLE_PYTHON_REQUIREMENT_MODULES=uv
 if "%CUDA_URL%"               equ "" set CUDA_URL=https://developer.download.nvidia.com/compute/cuda/12.6.2/local_installers/cuda_12.6.2_560.94_windows.exe
 if "%VULKAN_URL%"             equ "" set VULKAN_URL=https://sdk.lunarg.com/sdk/download/1.3.296.0/windows/VulkanSDK-1.3.296.0-Installer.exe
 if "%POTABLE_CHROME_URL%"     equ "" set POTABLE_CHROME_URL=https://storage.googleapis.com/chrome-for-testing-public/138.0.7204.168/win64/chrome-win64.zip
