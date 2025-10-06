@@ -733,9 +733,9 @@ class BackendSelector:
 
         # Iterate servers in configured order and return at first match (original behavior)
         for name in backends_for_model:
-            # Remove "-low", "-middle", "-high" from end of model name
+            # Remove "-low", "-medium", "-high" from end of model name
             modelWithoutSuffix = model
-            for suffix in ["-low", "-middle", "-high"]:
+            for suffix in ["-low", "-medium", "-high"]:
                 if modelWithoutSuffix.endswith(suffix):
                     modelWithoutSuffix = modelWithoutSuffix[: -len(suffix)]
                     break
