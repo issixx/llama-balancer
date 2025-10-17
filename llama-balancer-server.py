@@ -543,6 +543,92 @@ STICKY_MANAGER = StickySessionManager()
 
 
 # ------------------------------
+# Access Log Manager (New)
+# ------------------------------
+
+@dataclass
+class AccessLogEntry:
+    """Access log entry for completions requests"""
+    ip: str
+    model: str
+    timestamp: datetime
+    username: Optional[str] = None
+
+class AccessLogManager:
+    """Manage access logs for completions requests with 1-hour retention"""
+    
+    def __init__(self, retention_hours: int = 1) -> None:
+        self._retention_hours = retention_hours
+        self._lock = threading.Lock()
+        self._logs: Deque[AccessLogEntry] = deque()
+    
+    def log_access(self, ip: str, model: str, username: Optional[str] = None) -> None:
+        """Log a completions request access"""
+        with self._lock:
+            entry = AccessLogEntry(
+                ip=ip,
+                model=model,
+                timestamp=datetime.now(timezone.utc),
+                username=username
+            )
+            self._logs.append(entry)
+            self._cleanup_old_logs()
+    
+    def _cleanup_old_logs(self) -> None:
+        """Remove logs older than retention period"""
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=self._retention_hours)
+        while self._logs and self._logs[0].timestamp < cutoff_time:
+            self._logs.popleft()
+    
+    def get_recent_logs(self) -> List[AccessLogEntry]:
+        """Get all logs within retention period"""
+        with self._lock:
+            self._cleanup_old_logs()
+            return list(self._logs)
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get access statistics for monitoring"""
+        logs = self.get_recent_logs()
+        now = datetime.now(timezone.utc)
+        
+        # Count by IP
+        ip_counts = defaultdict(int)
+        # Count by model
+        model_counts = defaultdict(int)
+        # Count by username
+        username_counts = defaultdict(int)
+        # Time-based data for charts
+        time_series = defaultdict(int)
+        
+        for log in logs:
+            ip_counts[log.ip] += 1
+            model_counts[log.model] += 1
+            if log.username:
+                username_counts[log.username] += 1
+            
+            # Group by 1-minute intervals for time series
+            ts = log.timestamp
+            interval = ts.replace(second=0, microsecond=0)
+            time_series[interval.isoformat()] += 1
+        
+        return {
+            "total_requests": len(logs),
+            "unique_ips": len(ip_counts),
+            "unique_models": len(model_counts),
+            "unique_usernames": len(username_counts),
+            "ip_counts": dict(ip_counts),
+            "model_counts": dict(model_counts),
+            "username_counts": dict(username_counts),
+            "time_series": dict(time_series),
+            "retention_hours": self._retention_hours,
+            "oldest_log": logs[0].timestamp.isoformat() if logs else None,
+            "newest_log": logs[-1].timestamp.isoformat() if logs else None,
+        }
+
+# Global instance
+ACCESS_LOG_MANAGER = AccessLogManager()
+
+# ------------------------------
 # In-flight Tracker (Refactored)
 # ------------------------------
 
@@ -1039,6 +1125,12 @@ def llmhealth() -> Response:
     })
 
 
+@app.route("/access-log-stats", methods=["GET"])  # Access log statistics
+def access_log_stats() -> Response:
+    """Get access log statistics for monitoring"""
+    stats = ACCESS_LOG_MANAGER.get_stats()
+    return jsonify(stats)
+
 @app.route("/llmhealth-snapshot", methods=["GET"])  # JSON for monitor
 def llmhealth_snapshot() -> Response:
     # Build local summary
@@ -1171,6 +1263,18 @@ def llmhealth_monitor() -> Response:
       .muted { color: #6b7280; font-size: 12px; }
       .header { display:flex; align-items: baseline; gap: 12px; }
       .pill { padding: 2px 8px; border-radius: 9999px; background:#eef2ff; color:#3730a3; font-size:12px; }
+      .chart-container { margin: 20px 0; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb; }
+      .chart-title { font-size: 16px; font-weight: 600; margin-bottom: 15px; color: #374151; }
+      .chart { height: 250px; position: relative; background: white; border-radius: 4px; overflow-x: auto; overflow-y: visible; }
+      .bar-chart { display: flex; align-items: end; height: 180px; gap: 4px; padding: 30px 10px 20px 10px; min-width: max-content; }
+      .bar { background: linear-gradient(to top, #3b82f6, #60a5fa); border-radius: 2px 2px 0 0; min-height: 4px; position: relative; min-width: 40px; max-width: 80px; }
+      .bar:hover { background: linear-gradient(to top, #1d4ed8, #3b82f6); }
+      .bar-label { position: absolute; bottom: -35px; left: 50%; transform: translateX(-50%); font-size: 9px; color: #6b7280; white-space: nowrap; text-align: center; width: 100px; }
+      .bar-value { position: absolute; top: -30px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: 600; color: #374151; background: rgba(255, 255, 255, 0.9); padding: 2px 4px; border-radius: 3px; }
+      .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 15px 0; }
+      .stat-card { padding: 15px; background: white; border: 1px solid #e5e7eb; border-radius: 8px; }
+      .stat-value { font-size: 24px; font-weight: 700; color: #1f2937; }
+      .stat-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
     </style>
   </head>
   <body>
@@ -1201,6 +1305,51 @@ def llmhealth_monitor() -> Response:
         <tbody id="sticky-tbody"></tbody>
       </table>
     </div>
+    
+    <!-- Access Log Section -->
+    <div>
+      <h3>Access Log (Last 1 Hour)</h3>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="total-requests">0</div>
+          <div class="stat-label">Total Requests</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="unique-ips">0</div>
+          <div class="stat-label">Unique IPs</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="unique-models">0</div>
+          <div class="stat-label">Unique Models</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="unique-usernames">0</div>
+          <div class="stat-label">Unique Users</div>
+        </div>
+      </div>
+      
+      <div class="chart-container">
+        <div class="chart-title">Requests by Model</div>
+        <div class="chart">
+          <div class="bar-chart" id="model-chart"></div>
+        </div>
+      </div>
+      
+      <div class="chart-container">
+        <div class="chart-title">Requests by IP</div>
+        <div class="chart">
+          <div class="bar-chart" id="ip-chart"></div>
+        </div>
+      </div>
+      
+      <div class="chart-container">
+        <div class="chart-title">Requests Over Time (5-min intervals)</div>
+        <div class="chart">
+          <div class="bar-chart" id="time-chart"></div>
+        </div>
+      </div>
+    </div>
+    
     <script>
       async function refresh(){
         try{
@@ -1251,8 +1400,105 @@ def llmhealth_monitor() -> Response:
           console.error(e);
         }
       }
+      
+      async function refreshAccessLogs(){
+        try{
+          const r = await fetch('/access-log-stats', { cache: 'no-store' });
+          const stats = await r.json();
+          
+          // Update stats
+          document.getElementById('total-requests').textContent = stats.total_requests || 0;
+          document.getElementById('unique-ips').textContent = stats.unique_ips || 0;
+          document.getElementById('unique-models').textContent = stats.unique_models || 0;
+          document.getElementById('unique-usernames').textContent = stats.unique_usernames || 0;
+          
+          // Draw model chart
+          drawBarChart('model-chart', stats.model_counts || {});
+          
+          // Draw IP chart
+          drawBarChart('ip-chart', stats.ip_counts || {});
+          
+          // Draw time series chart
+          drawBarChart('time-chart', stats.time_series || {});
+          
+        }catch(e){
+          console.error('Access log refresh error:', e);
+        }
+      }
+      
+      function drawBarChart(containerId, data) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = '';
+        
+        // --- NEW: adjust alignment for time chart ---
+        if (containerId === 'time-chart') {
+          container.style.justifyContent = 'flex-end';
+        } else {
+          container.style.justifyContent = 'flex-start';
+        }
+        
+        let entries = Object.entries(data);
+        
+        // Custom layout tweaks for time-chart
+        if (containerId === 'time-chart') {
+          container.parentElement.style.overflowX = 'hidden'; // hide horizontal scroll
+          container.style.minWidth = '95%';
+        }
+        
+        // For the time chart, sort chronologically (oldest to newest; right edge is now)
+        if (containerId === 'time-chart') {
+          const STEP_MS = 60 * 1000; // 1 minute
+          const WINDOW_COUNT = 120; // show last 2 hours (120*1min)
+          const parsed = Object.fromEntries(entries.map(([k, v]) => [new Date(k).getTime(), v]));
+          const times = Object.keys(parsed).map(t => Number(t));
+          const now = Date.now();
+          const nowAligned = Math.floor(now / STEP_MS) * STEP_MS;
+          const startT = nowAligned - WINDOW_COUNT * STEP_MS;
+
+          entries = [];
+          for (let t = startT; t <= nowAligned; t += STEP_MS) {
+            const val = parsed[t] || 0;
+            entries.push([new Date(t).toISOString(), val]);
+          }
+        } else {
+          // For other charts, sort by descending value
+          entries = entries.sort((a, b) => b[1] - a[1]);
+        }
+        
+        const maxValue = Math.max(...entries.map(([k, v]) => v), 1);
+        
+        entries.forEach(([key, value]) => {
+          const bar = document.createElement('div');
+          bar.className = 'bar';
+          bar.style.height = `${(value / maxValue) * 100}%`;
+          
+          const label = document.createElement('div');
+          label.className = 'bar-label';
+          
+          // For the time chart, shorten time labels (HH:mm)
+          if (containerId === 'time-chart') {
+            const date = new Date(key);
+            const hours = date.getHours().toString().padStart(2, '0');
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+            label.textContent = `${hours}:${minutes}`;
+          } else {
+            label.textContent = key; // do not abbreviate
+          }
+          bar.appendChild(label);
+          
+          const valueLabel = document.createElement('div');
+          valueLabel.className = 'bar-value';
+          valueLabel.textContent = value;
+          bar.appendChild(valueLabel);
+          
+          container.appendChild(bar);
+        });
+      }
+      
       refresh();
+      refreshAccessLogs();
       setInterval(refresh, 5000);
+      setInterval(refreshAccessLogs, 10000);
     </script>
   </body>
 </html>
@@ -1318,6 +1564,14 @@ def proxy(path: str) -> Response:
 
             if ApplyCustomCompletions(body):
                 is_modified_body = True
+                
+            # Log access for completions requests
+            if isinstance(m, str) and m:
+                ACCESS_LOG_MANAGER.log_access(
+                    ip=client_ip,
+                    model=m,
+                    username=username
+                )
         except Exception:
             backend = backend
 
