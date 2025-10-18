@@ -1329,6 +1329,13 @@ def llmhealth_monitor() -> Response:
       </div>
       
       <div class="chart-container">
+        <div class="chart-title">Requests Over Time (1-min intervals)</div>
+        <div class="chart">
+          <div class="bar-chart" id="time-chart"></div>
+        </div>
+      </div>
+      
+      <div class="chart-container">
         <div class="chart-title">Requests by Model</div>
         <div class="chart">
           <div class="bar-chart" id="model-chart"></div>
@@ -1339,13 +1346,6 @@ def llmhealth_monitor() -> Response:
         <div class="chart-title">Requests by IP</div>
         <div class="chart">
           <div class="bar-chart" id="ip-chart"></div>
-        </div>
-      </div>
-      
-      <div class="chart-container">
-        <div class="chart-title">Requests Over Time (5-min intervals)</div>
-        <div class="chart">
-          <div class="bar-chart" id="time-chart"></div>
         </div>
       </div>
     </div>
