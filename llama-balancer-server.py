@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import sys
 import threading
@@ -1514,23 +1514,49 @@ final ::= "<|channel|>final<|message|>"'''
     body["reasoning_format"] = "auto"
     body["grammar"] = CLINE_GBNF
 
+def IsModelGptOss(body: Dict[str, Any]) -> bool:
+    model = body.get("model") if isinstance(body, dict) else None
+    if isinstance(model, str) and model:
+        if "gpt-oss" in model.lower():
+            return True
+    return False
+    
 def ApplyCustomCompletions(body: Dict[str, Any]) -> bool:
     modified: bool = False
-    if isinstance(body, dict) and body.get("messages"):
-        for message in body.get("messages"):
-            if isinstance(message, dict) and message.get("role") == "system":
-                contents = message.get("content", [])
-                text = ""
-                if isinstance(contents, str):
-                    text = contents
-                elif isinstance(contents, list) and 0 < len(contents):
-                    first = contents[0]
-                    if isinstance(first, dict):
-                        text = first.get("text", "")
-                if text.startswith("You are Cline") or text.startswith("You are Roo"):
-                    ApplyCustomClineGBNF(body)
-                    modified = True
-                    break
+    if IsModelGptOss(body):
+        if body.get("messages"):
+            for message in body.get("messages"):
+                if isinstance(message, dict) and message.get("role") == "system":
+                    contents = message.get("content", [])
+                    text = ""
+                    if isinstance(contents, str):
+                        text = contents
+                    elif isinstance(contents, list) and 0 < len(contents):
+                        first = contents[0]
+                        if isinstance(first, dict):
+                            text = first.get("text", "")
+                    if text.startswith("You are Cline") or text.startswith("You are Roo"):
+                        ApplyCustomClineGBNF(body)
+                        modified = True
+                        break
+                    
+        # for continue.dev
+        model = body.get("model").lower()
+        for suffix in ["-apply", "-edit"]:
+            if model.endswith(suffix):
+                model = model.replace(suffix, "")
+                body["model"] = model
+                body["reasoning_format"] = "auto"
+                modified = True
+                break
+
+        # reasoning effort
+        for suffix in ["low", "medium", "high"]:
+            if model.endswith(suffix):
+                kwargs = {"reasoning_effort": suffix }
+                body["chat_template_kwargs"] = kwargs
+                modified = True
+                break
     return modified
 
 @app.route("/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
@@ -1547,6 +1573,8 @@ def proxy(path: str) -> Response:
     if is_completions:
         try:
             body = request.get_json(silent=True) or {}
+            if ApplyCustomCompletions(body):
+                is_modified_body = True
             m = body.get("model") if isinstance(body, dict) else None
             # Extract username from system role
             username = _extract_username_from_system_messages(body.get("messages")) if isinstance(body, dict) else None
@@ -1561,9 +1589,6 @@ def proxy(path: str) -> Response:
                     body["model"] = selected_model
                     is_modified_body = True
                     print(f"[INFO] selected backend and model: {backend} | {selected_model}")
-
-            if ApplyCustomCompletions(body):
-                is_modified_body = True
                 
             # Log access for completions requests
             if isinstance(m, str) and m:
